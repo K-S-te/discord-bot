@@ -16,8 +16,8 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-
-bot = commands.Bot(command_prefix="!", intents=intents)
+          
+bot = commands.Bot(command_prefix="/", intents=intents)
 
 GUILD = discord.Object(id=guild_id)
 
@@ -40,7 +40,24 @@ async def createteam(
     member2: discord.Member = None,
     member3: discord.Member = None,
 ):
+    if (member1.id == interaction.user.id or 
+       (member2 and member2.id==interaction.user.id) or 
+       (member3 and member3.id==interaction.user.id)):
+        await interaction.response.send_message(
+            content="You can't list your name as member, you are automatically added to the team",
+            ephemeral=True
+        )
+        return
 
+    if ((member2 and member1.id == member2.id) or 
+        (member3 and member1.id == member3.id) or 
+        (member2 and member3 and member2.id ==  member3.id)):
+            await interaction.response.send_message(
+                content="You can't list a member more then once",
+                ephemeral=True
+            )
+            return
+    
     await interaction.response.defer()
 
  
@@ -51,7 +68,7 @@ async def createteam(
 
     overwrites = {
         guild.default_role: discord.PermissionOverwrite(view_channel=False), 
-        guild.me: discord.PermissionOverwrite(view_channel=True, manage_channels=True) 
+        guild.me: discord.PermissionOverwrite(view_channel=True, manage_channels=True)
     }
     
 
@@ -74,5 +91,53 @@ async def createteam(
         await interaction.followup.send("Error: I don't have permission to create channels. Check my role permissions.")
     except Exception as e:
         await interaction.followup.send(f"An error occurred: {e}")
+
+@bot.tree.command(name="addmember", description="Add a member to an already existing team")
+async def addmember(
+    interaction: discord.Interaction,
+    teamname: discord.CategoryChannel,
+    add_member: discord.Member,
+    add_member2: discord.Member = None
+):
+    if interaction.user not in teamname.overwrites:
+        await interaction.response.send_message(
+            "You cannot add someone to a team you are not a member off",
+            ephemeral=True
+        )
+        return
+    if add_member in teamname.overwrites or add_member2 in teamname.overwrites:
+        await interaction.response.send_message(
+            f"{add_member} or {add_member2 if add_member2 is not None else ''} are already part of {teamname}",
+            ephemeral=True
+        )
+        return
+
+    
+    await interaction.response.defer()
+
+    members = [add_member, add_member2]
+    members = list({m.id:m for m in members if m is not None}.values())
+
+    permissions = discord.PermissionOverwrite(
+        view_channel=True, connect=True, speak=True, send_messages=True
+    )
+    try:
+        for m in members:
+            await teamname.set_permissions(m, overwrite=permissions)
+            for channel in teamname.channels:
+                await channel.set_permissions(m, overwrite=permissions)
+
+        names = ", ".join(m.mention for m in members)
+        await interaction.followup.send(f"Added {names} to **{teamname}**.")
+
+        text_channel = discord.utils.get(teamname.text_channels, name="text")
+        if text_channel:
+            await text_channel.send(f"Welcome to the team, {names}!")
+    except discord.Forbidden:
+        await interaction.followup.send("I don't have permission...")
+    except Exception as e:
+        await interaction.followup.send(f"An error occurred: {e}")
+
+
 
 bot.run(token, log_handler=handler, log_level=logging.DEBUG)
